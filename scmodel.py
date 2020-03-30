@@ -186,9 +186,14 @@ class SpectrogramSC(SparseCoding):
 			self.X_test = np.array(spect['spectograms'][test_idxs,:,:])
 			print('Test set complete')
 
-		self.x_shape = self.X_train.shape[1:]
+		self.x_shape = self.X_train.shape[1:] # Get original array shape
+
+		# Vectorize spectrograms
+		self.X_train = self.X_train.reshape(self.X_train.shape[0], np.prod(self.x_shape))
+		self.X_test = self.X_test.reshape(self.X_test.shape[0], np.prod(self.x_shape))
 
 		# Get file name labels for training and test data
+		print('Getting data labels...')
 		self.train_labels = []
 		self.test_labels = []
 		with open(self.fnames_path) as fnames:
@@ -202,7 +207,7 @@ class SpectrogramSC(SparseCoding):
 				i += 1
 		print('Subsampling complete\n')
 
-	def preprocess(self, fit = True, n_components = .98):
+	def preprocess(self, fit = True, n_components = .995):
 		print('Preprocessing data...')
 		if self.isempty:
 			print('Error: data empty\n')
