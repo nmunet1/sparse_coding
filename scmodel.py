@@ -24,7 +24,9 @@ class SparseCoding(object):
 		rng = True):
 
 		self.isempty = True
+		self.root_path = None
 		self.sc_model = None
+		self.datatype = ''
 
 		if rng:
 			self.rng = RandomState(randint(100000))
@@ -43,7 +45,10 @@ class SparseCoding(object):
 		self.ymargin = ymargin
 
 	def fit(self, completion = 2, alpha = .5, n_iter = 500, batch_size = 50):
+		print('Fitting model...')
+
 		if self.X_train_pp.size == 0:
+			print('Error: no training data')
 			return None
 
 		dict_size = round(completion * self.X_train_pp.shape[1])
@@ -51,6 +56,7 @@ class SparseCoding(object):
 		self.sparse_model = dcmp.MiniBatchDictionaryLearning(n_components = dict_size, alpha = alpha,
 			fit_algorithm = 'cd', n_iter = n_iter, random_state = self.rng, batch_size = batch_size)
 		self.sparse_model.fit(X_train_pp)
+		print('Fitting complete')
 
 	def reconstruct(self):
 		pass
@@ -58,8 +64,29 @@ class SparseCoding(object):
 	def losses(self):
 		pass
 
-	def save(self):
-		pass
+	def saveh5(self, fname = None):
+		if self.isempty:
+			print('Error: no data read in')
+			return None
+
+		if fname is None:
+			save_path = os.join.path(self.root_path, self.datatype, '_sc_model')
+		else:
+			save_path = os.join.path(self.root_path, fname)
+
+		with h5py.File(save_path, 'w') as fid:
+			self_dict = vars(self)
+			for varnames in self_dict:
+				fid.create_dataset(varnames, data = self_dict[varnames])
+
+		print('File saved')
+
+	def readh5(self, path):
+		with h5py.File(path, 'r') as fid:
+			for varnames in fid.keys():
+				setattr(self, varnames, np.array(fid[varnames]).squeeze())
+
+		print('File opened')
 
 
 class SpectrogramSC(SparseCoding):
@@ -83,6 +110,7 @@ class SpectrogramSC(SparseCoding):
 		self.isempty = False
 
 		# Set paths for data and metadata
+		self.root_path = path
 		self.feat_path = os.path.join(path, 'acoustic_features_setA.h5')
 		self.label_path = os.path.join(path, 'label_names')
 		self.spect_path = os.path.join(path, 'sound_arrays.h5')
@@ -147,7 +175,7 @@ class SpectrogramSC(SparseCoding):
 			train_idxs += samples[:round(train_prop*n_samples)]
 			test_idxs += samples[round(train_prop*n_samples):]
 
-		train_idx.sort()
+		train_idxs.sort()
 		test_idxs.sort()
 
 		# Get training and test data arrays
@@ -186,12 +214,12 @@ class SpectrogramSC(SparseCoding):
 		if fit:
 			print('Fitting PCA model...')
 			self.pca_model = dcmp.PCA(n_components = n_components, whiten = True, random_state = self.rng)
-			self.X_train_pp = pca_model.fit_transform(self.X_train - np.mean(self.X_train,0))
+			self.X_train_pp = self.pca_model.fit_transform(self.X_train - np.mean(self.X_train,0))
 		else:
-			self.X_train_pp = pca_model.transform(self.X_train - np.mean(self.X_train,0))
+			self.X_train_pp = self.pca_model.transform(self.X_train - np.mean(self.X_train,0))
 		print('Training set preprocessed')
 
-		self.X_test_pp = pca_model.transform(self.X_test - np.mean(self.X_test,0))
+		self.X_test_pp = self.pca_model.transform(self.X_test - np.mean(self.X_test,0))
 		print('Test set preprocessed')
 
 	def plotData(self, dataset = 'Train'):
@@ -200,13 +228,13 @@ class SpectrogramSC(SparseCoding):
 
 		if dataset == 'Train':
 			plotFeatureArrays(self.X_train, self.x_shape, tiled = True, 
-				tiles_psn = (self.xmargin, self.ymargin)+self.imshape,
+				tile_psn = (self.xmargin, self.ymargin)+self.imshape,
 				xlims = (0, 100), ylims = (250, 10000),
 				titles = self.train_labels, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
 				noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
 		elif dataset == 'Test':
 			plotFeatureArrays(self.X_test, self.x_shape, tiled = True, 
-				tiles_psn = (self.xmargin, self.ymargin)+self.imshape,
+				tile_psn = (self.xmargin, self.ymargin)+self.imshape,
 				xlims = (0, 100), ylims = (250, 10000),
 				titles = self.test_labels, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
 				noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
