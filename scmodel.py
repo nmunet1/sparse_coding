@@ -12,7 +12,7 @@ from numpy.random import RandomState, randint
 
 from sklearn import decomposition as dcmp
 
-from plotutils import plotFeatureArrays
+from plotting import plotFeatureArrays
 
 
 class SparseCoding(object):
@@ -89,6 +89,7 @@ class SpectrogramSC(SparseCoding):
 		self.fnames_path = os.path.join(path, 'spectrogram_file_names')
 
 		# Filter out spectrograms that have inappropriate number of labels or contain inf/nan values
+		print('Finding valid indices...')
 		with h5py.File(self.feat_path) as feat:
 			label_idxs = np.where(np.sum(np.array(feat['labels']), axis = 1) == 1)[0]
 
@@ -98,15 +99,17 @@ class SpectrogramSC(SparseCoding):
 		valid_idxs = np.intersect1d(label_idxs, sound_idxs, assume_unique = True)
 
 		# Get list of sound category names
+		print('Reading category names...')
 		self.category_names = []
 		with open(self.label_path) as names:
 			for line in names:
 				self.category_names.append(line[:-1].strip)
 
 		# Compile dict with indices of spectrograms organized by sound category
+		print('Sorting indices by category...\n')
 		self.category_idxs = {}
 		with h5py.File(self.feat_path) as feat:
-			sound_categories = features['labels']
+			sound_categories = feat['labels']
 
 			# Get array of indices for each category
 			for cat_i, cat_name in enumerate(self.category_names):
@@ -118,7 +121,9 @@ class SpectrogramSC(SparseCoding):
 
 
 	def subsample(self, categories = None, max_samples = 1000, train_prop = .8, seed = True):
+		print('Subsampling...')
 		if self.isempty:
+			print('Error: no data read in\n')
 			return None
 
 		if seed:
@@ -148,7 +153,10 @@ class SpectrogramSC(SparseCoding):
 		# Get training and test data arrays
 		with h5py.File(self.spect_path) as spect:
 			self.X_train = np.array(spect['spectograms'][train_idxs,:,:])
+			print('Training set complete')
+
 			self.X_test = np.array(spect['spectograms'][test_idxs,:,:])
+			print('Test set complete')
 
 		self.x_shape = self.X_train.shape[1:]
 
@@ -164,21 +172,27 @@ class SpectrogramSC(SparseCoding):
 					self.test_labels.append(line.split('/')[-1].split('.')[0])
 
 				i += 1
+		print('Subsampling complete\n')
 
 	def preprocess(self, fit = True, n_components = .98):
+		print('Preprocessing data...')
 		if self.isempty:
+			print('Error: data empty\n')
 			return None
 
 		if self.pca_model is None:
 			fit = True
 
 		if fit:
+			print('Fitting PCA model...')
 			self.pca_model = dcmp.PCA(n_components = n_components, whiten = True, random_state = self.rng)
 			self.X_train_pp = pca_model.fit_transform(self.X_train - np.mean(self.X_train,0))
 		else:
 			self.X_train_pp = pca_model.transform(self.X_train - np.mean(self.X_train,0))
+		print('Training set preprocessed')
 
 		self.X_test_pp = pca_model.transform(self.X_test - np.mean(self.X_test,0))
+		print('Test set preprocessed')
 
 	def plotData(self, dataset = 'Train'):
 		if self.isempty:
