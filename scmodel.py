@@ -92,7 +92,7 @@ class SparseCoding(object):
 class SpectrogramSC(SparseCoding):
 
 	def __init__(self):
-		SparseCoding.__init__(self, imheight = .8)
+		SparseCoding.__init__(self, imshape = (.4, .8))
 
 		self.spect_path = None
 		self.feat_path = None
