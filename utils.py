@@ -1,6 +1,6 @@
 import random
 import numpy as np
-import matplotlib as plt
+from matplotlib import pyplot as plt
 
 def plotFeatureArrays(featureVecs, array_shape, n_figs = 10, tiled = True, tiles_shape = (2,5),
 	tile_psn = (.1, .125, .4, .4), xlims = None, ylims = None, titles = None, xlabel = None, ylabel = None,
