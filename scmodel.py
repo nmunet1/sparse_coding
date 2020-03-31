@@ -12,7 +12,7 @@ from numpy.random import RandomState, randint
 
 from sklearn import decomposition as dcmp
 
-from plotting import plotFeatureArrays
+from utils import plotFeatureArrays
 
 
 class SparseCoding(object):
@@ -55,7 +55,7 @@ class SparseCoding(object):
 
 		self.sparse_model = dcmp.MiniBatchDictionaryLearning(n_components = dict_size, alpha = alpha,
 			fit_algorithm = 'cd', n_iter = n_iter, random_state = self.rng, batch_size = batch_size)
-		self.sparse_model.fit(X_train_pp)
+		self.sparse_model.fit(self.X_train_pp)
 		print('Fitting complete')
 
 	def reconstruct(self):
@@ -70,9 +70,9 @@ class SparseCoding(object):
 			return None
 
 		if fname is None:
-			save_path = os.join.path(self.root_path, self.datatype, '_sc_model')
+			save_path = os.path.join(self.root_path, self.datatype, '_sc_model')
 		else:
-			save_path = os.join.path(self.root_path, fname)
+			save_path = os.path.join(self.root_path, fname)
 
 		with h5py.File(save_path, 'w') as fid:
 			self_dict = vars(self)
@@ -229,6 +229,7 @@ class SpectrogramSC(SparseCoding):
 
 	def plotData(self, dataset = 'Train'):
 		if self.isempty:
+			print('Error: no data to plot')
 			return None
 
 		if dataset == 'Train':
@@ -246,6 +247,7 @@ class SpectrogramSC(SparseCoding):
 
 	def plotDictionary(self):
 		if self.sc_model is None:
+			print('Error: SC model empty')
 			return None
 
 		components = self.pca_model.inverse_transform(self.sparse_model.components_)
@@ -255,6 +257,24 @@ class SpectrogramSC(SparseCoding):
 			xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
 			extent = (0, 99, 0, 79952), origin = 'lower')
+
+	def reconstructFromPCs(self, dataset = 'Train'):
+		if self.pca_model is None:
+			print('Error: PCA model empty')
+			return None
+
+		if dataset == 'Train':
+			X_hat = self.pca_model.inverse_transform(self.X_train_pp) + np.mean(self.X_train, 0)
+		elif dataset == 'Test':
+			X_hat = self.pca_model.inverse_transform(self.X_test_pp) + np.mean(self.X_train, 0)
+		else:
+			print('Error: dataset value %s unknown' % dataset)
+
+		plotFeatureArrays(self.X_hat, self.x_shape, tiled = True, 
+			tile_psn = (self.xmargin, self.ymargin)+self.imshape,
+			xlims = (0, 100), ylims = (250, 10000),
+			titles = self.train_labels, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
+			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
 
 
 class NaturalImageSC(SparseCoding):
