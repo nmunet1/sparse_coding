@@ -77,7 +77,8 @@ class SparseCoding(object):
 		with h5py.File(save_path, 'w') as fid:
 			self_dict = vars(self)
 			for varnames in self_dict:
-				fid.create_dataset(varnames, data = self_dict[varnames])
+				if self_dict[varnames] is not None:
+					fid.create_dataset(varnames, data = self_dict[varnames])
 
 		print('File saved')
 
