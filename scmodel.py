@@ -1,8 +1,8 @@
 import bisect
 import math
 import os
+import pickle
 import random
-import struct as st
 
 import h5py
 import numpy as np
@@ -25,13 +25,15 @@ class SparseCoding(object):
 
 		self.isempty = True
 		self.root_path = None
-		self.sc_model = None
+		self.sparse_model = None
 		self.datatype = ''
 
 		if rng:
 			self.rng = RandomState(randint(100000))
+			self.seed_id = randint(100000)
 		else:
 			self.rng = None
+			self.seed_id = None
 
 		self.X_train = np.asarray([])
 		self.X_test = np.asarray([])
@@ -58,36 +60,15 @@ class SparseCoding(object):
 		self.sparse_model.fit(self.X_train_pp)
 		print('Fitting complete')
 
+	def reseed(self):
+		self.seed_id = randint(100000)
+		self.rng = RandomState(randint(100000))
+
 	def reconstruct(self):
 		pass
 
 	def losses(self):
 		pass
-
-	def saveh5(self, fname = None):
-		if self.isempty:
-			print('Error: no data read in')
-			return None
-
-		if fname is None:
-			save_path = os.path.join(self.root_path, self.datatype, '_sc_model')
-		else:
-			save_path = os.path.join(self.root_path, fname)
-
-		with h5py.File(save_path, 'w') as fid:
-			self_dict = vars(self)
-			for varnames in self_dict:
-				if self_dict[varnames] is not None:
-					fid.create_dataset(varnames, data = self_dict[varnames])
-
-		print('File saved')
-
-	def readh5(self, path):
-		with h5py.File(path, 'r') as fid:
-			for varnames in fid.keys():
-				setattr(self, varnames, np.array(fid[varnames]).squeeze())
-
-		print('File opened')
 
 
 class SpectrogramSC(SparseCoding):
@@ -107,7 +88,7 @@ class SpectrogramSC(SparseCoding):
 		self.train_labels = []
 		self.test_labels = []
 
-	def readin(self, path):
+	def readin(self, path, auto_subsample = True):
 		self.isempty = False
 
 		# Set paths for data and metadata
@@ -145,8 +126,9 @@ class SpectrogramSC(SparseCoding):
 				self.category_idxs[cat_name] = np.intersect1d(valid_idxs, 
 					list(compress(range(valid_idxs.size), sound_categories[:,cat_i])),
 					assume_unique = True)
-
-		self.subsample()
+		
+		if auto_subsample:
+			self.subsample()
 
 
 	def subsample(self, categories = None, max_samples = 1000, train_prop = .8, seed = True):
@@ -234,30 +216,30 @@ class SpectrogramSC(SparseCoding):
 			return None
 
 		if dataset == 'Train':
-			plotFeatureArrays(self.X_train, self.x_shape, tiled = True, 
-				tile_psn = (self.xmargin, self.ymargin)+self.imshape,
-				xlims = (0, 100), ylims = (250, 10000),
-				titles = self.train_labels, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
-				noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
+			X = self.X_train
+			titles = self.train_labels
 		elif dataset == 'Test':
-			plotFeatureArrays(self.X_test, self.x_shape, tiled = True, 
-				tile_psn = (self.xmargin, self.ymargin)+self.imshape,
-				xlims = (0, 100), ylims = (250, 10000),
-				titles = self.test_labels, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
-				noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
+			X = self.X_test
+			titles = self.test_labels
+
+		plotFeatureArrays(X, self.x_shape, tiled = True, 
+			tile_psn = (self.xmargin, self.ymargin) + self.imshape,
+			xlims = (0, 100), ylims = (250, 10000),
+			titles = titles, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
+			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower', seed_id = self.seed_id)
 
 	def plotDictionary(self):
-		if self.sc_model is None:
+		if self.sparse_model is None:
 			print('Error: SC model empty')
 			return None
 
 		components = self.pca_model.inverse_transform(self.sparse_model.components_)
 
 		plotFeatureArrays(components, self.x_shape, tiled = True, 
-			tiles_psn = (self.xmargin, self.ymargin) + self.imshape,
+			tile_psn = (self.xmargin, self.ymargin) + self.imshape,
 			xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
-			extent = (0, 99, 0, 79952), origin = 'lower')
+			extent = (0, 99, 0, 79952), origin = 'lower', seed_id = self.seed_id)
 
 	def reconstructFromPCs(self, dataset = 'Train'):
 		if self.pca_model is None:
@@ -266,16 +248,18 @@ class SpectrogramSC(SparseCoding):
 
 		if dataset == 'Train':
 			X_hat = self.pca_model.inverse_transform(self.X_train_pp) + np.mean(self.X_train, 0)
+			titles = self.train_labels
 		elif dataset == 'Test':
 			X_hat = self.pca_model.inverse_transform(self.X_test_pp) + np.mean(self.X_train, 0)
+			titles = self.test_labels
 		else:
 			print('Error: dataset value %s unknown' % dataset)
 
-		plotFeatureArrays(self.X_hat, self.x_shape, tiled = True, 
-			tile_psn = (self.xmargin, self.ymargin)+self.imshape,
+		plotFeatureArrays(X_hat, self.x_shape, tiled = True, 
+			tile_psn = (self.xmargin, self.ymargin) + self.imshape,
 			xlims = (0, 100), ylims = (250, 10000),
-			titles = self.train_labels, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
-			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
+			titles = titles, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
+			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower', seed_id = self.seed_id)
 
 
 class NaturalImageSC(SparseCoding):
