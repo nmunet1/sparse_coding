@@ -4,9 +4,12 @@ from matplotlib import pyplot as plt
 
 def plotFeatureArrays(featureVecs, array_shape, n_figs = 10, tiled = True, tiles_shape = (2,5),
 	tile_psn = (.1, .125, .4, .4), xlims = None, ylims = None, titles = None, xlabel = None, ylabel = None,
-	noise_floor = None, extent = None, origin = None, colorbar = True):
+	noise_floor = None, extent = None, origin = None, colorbar = True, seed_id = 22):
 	
 	n_samples = featureVecs.shape[0]
+	if seed_id is not None:
+		random.seed(seed_id)
+	print(seed_id)
 
 	if tiled:
 		sample_idxs = np.array(random.sample(range(n_samples), np.prod(tiles_shape))).reshape(tiles_shape)
@@ -21,14 +24,15 @@ def plotFeatureArrays(featureVecs, array_shape, n_figs = 10, tiled = True, tiles
 				# set signal limits
 				maxSig = arr.max()
 				if noise_floor is not None:
-					minSig = magSig - noise_floor
+					minSig = maxSig - noise_floor
 					arr[arr < minSig] = minSig
 				minSig = arr.min()
 
 				left = tile_psn[0]*(c+1) + tile_psn[2]*c
 				bottom = tile_psn[1]*(r+1) + tile_psn[3]*r
 
-				plt.axes((left, bottom, tile_psn[2], tile_psn[3]))
+				plt.axes((left, bottom)+tile_psn[2:])
+				#print(plt.gca().get_position())
 
 				plt.imshow(arr, extent = extent, aspect = 'auto', interpolation = 'nearest', origin = origin,
 					cmap = 'binary', vmin = minSig, vmax = maxSig)
@@ -53,9 +57,9 @@ def plotFeatureArrays(featureVecs, array_shape, n_figs = 10, tiled = True, tiles
 					plt.yticks([])
 
 				if titles is not None:
-					plt.title(title[idx])
+					plt.title(titles[idx])
 
-				plt.show()
+		plt.show()
 
 	else:
 		sample_idxs = np.array(random.sample(range(n_samples), n_figs))
@@ -66,7 +70,7 @@ def plotFeatureArrays(featureVecs, array_shape, n_figs = 10, tiled = True, tiles
 			# set signal limits
 			maxSig = arr.max()
 			if noise_floor is not None:
-				minSig = magSig - noise_floor
+				minSig = maxSig - noise_floor
 				arr[arr < minSig] = minSig
 			minSig = arr.min()
 
@@ -85,17 +89,17 @@ def plotFeatureArrays(featureVecs, array_shape, n_figs = 10, tiled = True, tiles
 			if ylims is not None:
 				plt.ylim(ylims)
 
-			if xlabel is not None and r == 0:
+			if xlabel is not None:
 				plt.xlabel(xlabel)
 			else:
 				plt.xticks([])
 
-			if ylabel is not None and c == 0:
+			if ylabel is not None:
 				plt.ylabel(ylabel)
 			else:
 				plt.yticks([])
 
 			if titles is not None:
-				plt.title(title[idx])
+				plt.title(titles[idx])
 
 			plt.show()
