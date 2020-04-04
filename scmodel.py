@@ -11,6 +11,7 @@ from itertools import compress
 from numpy.random import RandomState, randint
 
 from sklearn import decomposition as dcmp
+from sklearn.feature_extraction import image
 
 from utils import plotFeatureArrays
 
@@ -20,26 +21,21 @@ class SparseCoding(object):
 	Sparse coding parent class
 	'''
 
-	def __init__(self, imshape = (.4, .4), xmargin = .1, ymargin = .125, 
-		rng = True):
+	def __init__(self, imshape = (.4, .4), xmargin = .1, ymargin = .125):
 
 		self.isempty = True
 		self.root_path = None
 		self.sparse_model = None
 		self.datatype = ''
 
-		if rng:
-			self.rng = RandomState(randint(100000))
-			self.seed_id = randint(100000)
-		else:
-			self.rng = None
-			self.seed_id = None
+		self.rng = RandomState(randint(100000))
+		self.seed_id = randint(100000)
 
 		self.X_train = np.asarray([])
 		self.X_test = np.asarray([])
 		self.X_train_pp = np.asarray([])
 		self.X_test_pp = np.asarray([])
-		self.x_shape = None
+		self.X_shape = None
 
 		# Initialize plotting parameters
 		self.imshape = imshape
@@ -138,7 +134,7 @@ class SpectrogramSC(SparseCoding):
 			return None
 
 		if seed:
-			random.seed(13)
+			random.seed(seed_id)
 
 		if categories is None:
 			categories = self.category_idxs.keys()
@@ -169,11 +165,11 @@ class SpectrogramSC(SparseCoding):
 			self.X_test = np.array(spect['spectograms'][test_idxs,:,:])
 			print('Test set complete')
 
-		self.x_shape = self.X_train.shape[1:] # Get original array shape
+		self.X_shape = self.X_train.shape[1:] # Get original array shape
 
 		# Vectorize spectrograms
-		self.X_train = self.X_train.reshape(self.X_train.shape[0], np.prod(self.x_shape))
-		self.X_test = self.X_test.reshape(self.X_test.shape[0], np.prod(self.x_shape))
+		self.X_train = self.X_train.reshape(self.X_train.shape[0], np.prod(self.X_shape))
+		self.X_test = self.X_test.reshape(self.X_test.shape[0], np.prod(self.X_shape))
 
 		# Get file name labels for training and test data
 		print('Getting data labels...')
@@ -222,7 +218,7 @@ class SpectrogramSC(SparseCoding):
 			X = self.X_test
 			titles = self.test_labels
 
-		plotFeatureArrays(X, self.x_shape, tiled = True, 
+		plotFeatureArrays(X, self.X_shape, tiled = True, 
 			tile_psn = (self.xmargin, self.ymargin) + self.imshape,
 			xlims = (0, 100), ylims = (250, 10000),
 			titles = titles, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
@@ -235,7 +231,7 @@ class SpectrogramSC(SparseCoding):
 
 		components = self.pca_model.inverse_transform(self.sparse_model.components_)
 
-		plotFeatureArrays(components, self.x_shape, tiled = True, 
+		plotFeatureArrays(components, self.X_shape, tiled = True, 
 			tile_psn = (self.xmargin, self.ymargin) + self.imshape,
 			xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
@@ -255,7 +251,7 @@ class SpectrogramSC(SparseCoding):
 		else:
 			print('Error: dataset value %s unknown' % dataset)
 
-		plotFeatureArrays(X_hat, self.x_shape, tiled = True, 
+		plotFeatureArrays(X_hat, self.X_shape, tiled = True, 
 			tile_psn = (self.xmargin, self.ymargin) + self.imshape,
 			xlims = (0, 100), ylims = (250, 10000),
 			titles = titles, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
@@ -264,5 +260,49 @@ class SpectrogramSC(SparseCoding):
 
 class NaturalImageSC(SparseCoding):
 
-	def __init__(self):
+	def __init__(self, path, completion = 2):
 		SparseCoding.__init__(self)
+		self.root_path = path
+		self.im_path = '/data/vanhateren/images_curated.h5'
+
+		self.X_shape = (8, 8)
+		self.completion = completion
+
+		self.readin()
+		self.preprocess()
+
+	def readin(self):
+		print('Reading in image data...')
+		with h5py.File(self.im_path, 'r') as f:
+			images = f['van_hateren_good'].value
+
+		print('Extracting patches...')
+		n_samples = round(completion * np.prod(self.X_shape)) * np.prod(self.X_shape) * 10
+		patches = image.PatchExtractor(patch_size = self.X_shape,
+			max_patches = n_samples // images.shape[0],
+			random_state = self.rng).transform(images)
+		self.X_train = patches.reshape((patches.shape[0], np.prod(self.X_shape))).T
+	
+	def preprocess(self):
+		print('ZCA whitening...')
+
+		X = self.X_train - self.X_train.mean(axis = -1, keepdims = True)
+
+		# ZCA
+		d, u = np.linalg.eig(np.cov(X))
+		M = u.dot(np.diag(np.sqrt(1./d)).dot(u.T))
+		self.X_train_pp = M.dot(X)
+
+	def plotData(self):
+		plotFeatureArrays(self.X_train_pp, self.X_shape, tiled = True, colorbar = False, 
+			seed_id = self.seed_id)
+
+	def plotDictionary(self):
+		if self.sparse_model is None:
+			print('Error: SC model empty\n')
+			return None
+
+		components = self.sparse_model.components_
+
+		plotFeatureArrays(components, self.X_shape, tiled = True, colorbar = False, 
+			seed_id = self.seed_id)
