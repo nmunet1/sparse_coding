@@ -56,9 +56,13 @@ class SparseCoding(object):
 		self.sparse_model.fit(self.X_train_pp)
 		print('Fitting complete')
 
-	def reseed(self):
-		self.seed_id = randint(100000)
-		self.rng = RandomState(randint(100000))
+	def reseed(self, seed = None):
+		if seed is None:
+			self.seed_id = randint(100000)
+			self.rng = RandomState(randint(100000))
+		else:
+			self.seed_id = seed
+			self.rng = RandomState(seed)
 
 	def reconstruct(self):
 		pass
@@ -218,10 +222,10 @@ class SpectrogramSC(SparseCoding):
 			X = self.X_test
 			titles = self.test_labels
 
-		plotFeatureArrays(X, self.X_shape, tiled = True, 
-			tile_psn = (self.xmargin, self.ymargin) + self.imshape,
-			xlims = (0, 100), ylims = (250, 10000),
-			titles = titles, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
+		plotFeatureArrays(X, self.X_shape, n_plots = (2, 5), 
+			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape, 
+			aspect = .2, xlims = (0, 100), ylims = (250, 10000),
+			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles, 
 			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower', seed_id = self.seed_id)
 
 	def plotDictionary(self):
@@ -231,9 +235,9 @@ class SpectrogramSC(SparseCoding):
 
 		components = self.pca_model.inverse_transform(self.sparse_model.components_)
 
-		plotFeatureArrays(components, self.X_shape, tiled = True, 
-			tile_psn = (self.xmargin, self.ymargin) + self.imshape,
-			xlims = (0, 100), ylims = (250, 10000),
+		plotFeatureArrays(components, self.X_shape, n_plots = (2, 5), 
+			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape, 
+			aspect = .2, xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
 			extent = (0, 99, 0, 79952), origin = 'lower', seed_id = self.seed_id)
 
@@ -251,10 +255,10 @@ class SpectrogramSC(SparseCoding):
 		else:
 			print('Error: dataset value %s unknown' % dataset)
 
-		plotFeatureArrays(X_hat, self.X_shape, tiled = True, 
-			tile_psn = (self.xmargin, self.ymargin) + self.imshape,
-			xlims = (0, 100), ylims = (250, 10000),
-			titles = titles, xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
+		plotFeatureArrays(X_hat, self.X_shape, n_plots = (2, 5), 
+			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape,
+			aspect = .2, xlims = (0, 100), ylims = (250, 10000),
+			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles, 
 			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower', seed_id = self.seed_id)
 
 
@@ -296,8 +300,7 @@ class NaturalImageSC(SparseCoding):
 		self.X_train_pp = (M.dot(X)).T
 
 	def plotData(self):
-		plotFeatureArrays(self.X_train_pp, self.X_shape, tiled = True, colorbar = False, 
-			seed_id = self.seed_id)
+		plotFeatureArrays(self.X_train_pp, self.X_shape, seed_id = self.seed_id)
 
 	def plotDictionary(self):
 		if self.sparse_model is None:
@@ -306,5 +309,4 @@ class NaturalImageSC(SparseCoding):
 
 		components = self.sparse_model.components_
 
-		plotFeatureArrays(components, self.X_shape, tiled = True, colorbar = False, 
-			seed_id = self.seed_id)
+		plotFeatureArrays(components, self.X_shape, tiled = True,  seed_id = self.seed_id)

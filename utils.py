@@ -1,68 +1,94 @@
 import random
 import numpy as np
 from matplotlib import pyplot as plt
+from mpl_toolkits.axes_grid1 import ImageGrid
 
-def plotFeatureArrays(featureVecs, array_shape, n_figs = 10, tiled = True, tiles_shape = (2,5),
-	tile_psn = (.1, .125, .4, .4), xlims = None, ylims = None, titles = None, xlabel = None, ylabel = None,
-	noise_floor = None, extent = None, origin = None, colorbar = True, seed_id = 22):
+def plotFeatureArrays(featureVecs, array_shape, n_plots = (5, 5), tile_pad = None, 
+	aspect = None, xlims = None, ylims = None, xlabel = None, ylabel = None, titles = None, 
+	noise_floor = None, extent = None, origin = None, cbar = False, seed_id = None):
 	
-	n_samples = featureVecs.shape[0]
-	if seed_id is not None:
+	n_samples = featureVecs.shape[0] # Total number of feature vectors
+	sample_titles = []
+
+	if tile_pad is None:
+		tile_pad = (0.1, 0.1)
+
+		if titles is not None:
+			tile_pad[1] += 0.15
+
+		if cbar:
+			tile_pad[0] += .4
+			tile_pad[1] += .05
+
+	# Set random number generator seed
+	if seed_id is None:
 		random.seed(seed_id)
-	print(seed_id)
 
-	if tiled:
-		sample_idxs = np.array(random.sample(range(n_samples), np.prod(tiles_shape))).reshape(tiles_shape)
+	if cbar:
+		cbar_mode = 'each'
+		cbar_pad = .03
+	else:
+		cbar_mode = None
+		cbar_pad = None
 
-		plt.figure()
+	if type(n_plots) is tuple and len(n_plots) == 2:
+		# Select random samples from feat
+		sample_idxs = random.sample(range(n_samples), np.prod(n_plots))
 
-		for r in range(tiles_shape[0]):
-			for c in range(tiles_shape[1]):
-				idx = sample_idxs[r,c]
-				arr = featureVecs[idx,:].reshape(array_shape)
+		fig = plt.figure()
+		grid = ImageGrid(fig, 111, nrows_ncols = n_plots, axes_pad = tile_pad, share_all = True, 
+			cbar_mode = cbar_mode, cbar_pad = cbar_pad)
 
-				# set signal limits
-				maxSig = arr.max()
-				if noise_floor is not None:
-					minSig = maxSig - noise_floor
-					arr[arr < minSig] = minSig
-				minSig = arr.min()
+		for ax, idx in zip(grid, sample_idxs):
+			arr = featureVecs[idx,:].reshape(array_shape)
 
-				left = tile_psn[0]*(c+1) + tile_psn[2]*c
-				bottom = tile_psn[1]*(r+1) + tile_psn[3]*r
+			# set signal limits
+			maxSig = arr.max()
+			if noise_floor is not None:
+				minSig = maxSig - noise_floor
+				arr[arr < minSig] = minSig
+			minSig = arr.min()
 
-				plt.axes((left, bottom)+tile_psn[2:])
-				#print(plt.gca().get_position())
+			#left = tile_psn[0]*(c+1) + tile_psn[2]*c
+			#bottom = tile_psn[1]*(r+1) + tile_psn[3]*r
 
-				plt.imshow(arr, extent = extent, aspect = 'auto', interpolation = 'nearest', origin = origin,
-					cmap = 'binary', vmin = minSig, vmax = maxSig)
-				
-				if colorbar:
-					plt.colorbar()
+			#plt.axes((left, bottom)+tile_psn[2:])
+			#print(plt.gca().get_position())
 
-				if xlims is not None:
-					plt.xlim(xlims)
+			im = ax.imshow(arr, aspect = aspect, extent = extent, interpolation = 'nearest', origin = origin,
+				cmap = 'binary', vmin = minSig, vmax = maxSig)
+			
+			if cbar:
+				cax.colorbar(im, ticks = [minSig, maxSig])
+				cax.tick_params(length = 0)
+				cax.set_yticklabels(['%.02f' % minSig, '%.02f' % maxSig], fontsize = 8)
 
-				if ylims is not None:
-					plt.ylim(ylims)
+			if xlims is not None:
+				ax.set_xlim(xlims)
 
-				if xlabel is not None and r == 0:
-					plt.xlabel(xlabel)
-				else:
-					plt.xticks([])
+			if ylims is not None:
+				ax.set_ylim(ylims)
 
-				if ylabel is not None and c == 0:
-					plt.ylabel(ylabel)
-				else:
-					plt.yticks([])
+			if titles is not None:
+				ax.set_title(titles[idx], pad = 3, fontsize = 10)
 
-				if titles is not None:
-					plt.title(titles[idx])
+		if xlabel is not None:
+			grid.axes_llc.set_xlabel(xlabel, labelpad = 3)
+			# set each x label
+			#for c in range(n_plots[1]):
+			# 	grid.axes_row[-1][c].set_xlabel(xlabel)
+		else:
+			grid.axes_llc.set_xticks([])
+
+		if ylabel is not None:
+			grid.axes_llc.set_ylabel(ylabel, labelpad = 3)
+		else:
+			grid.axes_llc.set_yticks([])
 
 		plt.show()
 
-	else:
-		sample_idxs = np.array(random.sample(range(n_samples), n_figs))
+	elif type(n_plots) is int:
+		sample_idxs = np.array(random.sample(range(n_samples), n_plots))
 
 		for idx in sample_idxs:
 			arr = featureVecs[idx,:].reshape(array_shape)
@@ -75,13 +101,15 @@ def plotFeatureArrays(featureVecs, array_shape, n_figs = 10, tiled = True, tiles
 			minSig = arr.min()
 
 			plt.figure()
-			plt.axes(tile_psn)
+			# plt.axes(tile_psn)
 
-			plt.imshow(arr, extent = extent, aspect = 'auto', interpolation = 'nearest', origin = origin,
+			plt.imshow(arr, aspect = aspect, extent = extent, interpolation = 'nearest', origin = origin, 
 				cmap = 'binary', vmin = minSig, vmax = maxSig)
 			
-			if colorbar:
-				plt.colorbar()
+			if cbar:
+				cbar_ = plt.colorbar(ticks = [minSig, maxSig])
+				cbar_.ax.tick_params(length = 0)
+				cbar_.ax.set_yticklabels(['%.02f' % minSig, '%.02f' % maxSig])
 
 			if xlims is not None:
 				plt.xlim(xlims)
