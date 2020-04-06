@@ -260,38 +260,40 @@ class SpectrogramSC(SparseCoding):
 
 class NaturalImageSC(SparseCoding):
 
-	def __init__(self, path, completion = 2):
+	def __init__(self, path, completion = 2, auto_preprocess = True):
 		SparseCoding.__init__(self)
 		self.root_path = path
 		self.im_path = '/data/vanhateren/images_curated.h5'
 
-		self.X_shape = (8, 8)
+		self.X_shape = (10, 10)
 		self.completion = completion
-
-		self.readin()
-		self.preprocess()
+		
+		if auto_preprocess:
+			self.readin()
+			self.preprocess()
 
 	def readin(self):
 		print('Reading in image data...')
 		with h5py.File(self.im_path, 'r') as f:
-			images = f['van_hateren_good'].value
+			images = f['van_hateren_good'][()]
 
 		print('Extracting patches...')
-		n_samples = round(completion * np.prod(self.X_shape)) * np.prod(self.X_shape) * 10
+		n_samples = round(self.completion * np.prod(self.X_shape)) * np.prod(self.X_shape) * 10
 		patches = image.PatchExtractor(patch_size = self.X_shape,
 			max_patches = n_samples // images.shape[0],
 			random_state = self.rng).transform(images)
-		self.X_train = patches.reshape((patches.shape[0], np.prod(self.X_shape))).T
+		self.X_train = patches.reshape((patches.shape[0], np.prod(self.X_shape)))
 	
 	def preprocess(self):
 		print('ZCA whitening...')
 
-		X = self.X_train - self.X_train.mean(axis = -1, keepdims = True)
+		X = self.X_train.T
+		X -= X.mean(axis = -1, keepdims = True)
 
 		# ZCA
 		d, u = np.linalg.eig(np.cov(X))
 		M = u.dot(np.diag(np.sqrt(1./d)).dot(u.T))
-		self.X_train_pp = M.dot(X)
+		self.X_train_pp = (M.dot(X)).T
 
 	def plotData(self):
 		plotFeatureArrays(self.X_train_pp, self.X_shape, tiled = True, colorbar = False, 
