@@ -52,7 +52,8 @@ class SparseCoding(object):
 		dict_size = round(completion * self.X_train_pp.shape[1])
 
 		self.sparse_model = dcmp.MiniBatchDictionaryLearning(n_components = dict_size, alpha = alpha,
-			fit_algorithm = 'cd', n_iter = n_iter, random_state = self.rng, batch_size = batch_size)
+			n_iter = n_iter, fit_algorithm = 'cd', batch_size = batch_size, transform_algorithm = 'lasso_cd', 
+			random_state = self.rng)
 		self.sparse_model.fit(self.X_train_pp)
 		print('Fitting complete')
 
@@ -299,14 +300,14 @@ class NaturalImageSC(SparseCoding):
 		M = u.dot(np.diag(np.sqrt(1./d)).dot(u.T))
 		self.X_train_pp = (M.dot(X)).T
 
-	def plotData(self):
-		plotFeatureArrays(self.X_train_pp, self.X_shape, seed_id = self.seed_id)
+	def plotData(self, grid_shape = (10,10)):
+		plotFeatureArrays(self.X_train_pp, self.X_shape, n_plots = grid_shape, seed_id = self.seed_id)
 
-	def plotDictionary(self):
+	def plotDictionary(self, grid_shape = (10,10)):
 		if self.sparse_model is None:
 			print('Error: SC model empty\n')
 			return None
 
 		components = self.sparse_model.components_
 
-		plotFeatureArrays(components, self.X_shape, tiled = True,  seed_id = self.seed_id)
+		plotFeatureArrays(components, self.X_shape, n_plots = grid_shape, seed_id = self.seed_id)
