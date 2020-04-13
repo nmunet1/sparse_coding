@@ -1,11 +1,6 @@
-import bisect
-import math
-import os
-import pickle
-import random
-
 import h5py
 import numpy as np
+import os
 
 from itertools import compress
 from numpy.random import RandomState, randint
@@ -13,23 +8,23 @@ from numpy.random import RandomState, randint
 from sklearn import decomposition as dcmp
 from sklearn.feature_extraction import image
 
-from utils import plotFeatureArrays
+from sparse_coding import model
+
+from .utils import plotFeatureArrays
 
 
 class SparseCoding(object):
 	'''
-	Sparse coding parent class
+	Generic sparse coding model
 	'''
 
-	def __init__(self, imshape = (.4, .4), xmargin = .1, ymargin = .125):
-
-		self.isempty = True
+	def __init__(self, imshape = (.4, .4), xmargin = .1, ymargin = .125, seed = 100000):
 		self.root_path = None
 		self.sparse_model = None
 		self.datatype = ''
 
-		self.rng = RandomState(randint(100000))
-		self.seed_id = randint(100000)
+		self.seed = seed
+		self.rng = RandomState(seed)
 
 		self.X_train = np.asarray([])
 		self.X_test = np.asarray([])
@@ -42,7 +37,8 @@ class SparseCoding(object):
 		self.xmargin = xmargin
 		self.ymargin = ymargin
 
-	def fit(self, completion = 2, alpha = .5, n_iter = 500, batch_size = 50):
+	def fit(self, completion = 2, lambd = .5, n_iter = 5000, batch_size = 50):
+		# Obselete parameters: n_iter = 5000, batch_size = 50
 		print('Fitting model...')
 
 		if self.X_train_pp.size == 0:
@@ -51,22 +47,16 @@ class SparseCoding(object):
 
 		dict_size = round(completion * self.X_train_pp.shape[1])
 
-		self.sparse_model = dcmp.MiniBatchDictionaryLearning(n_components = dict_size, alpha = alpha,
-			n_iter = n_iter, fit_algorithm = 'cd', batch_size = batch_size, transform_algorithm = 'lasso_cd', 
-			random_state = self.rng)
-		self.sparse_model.fit(self.X_train_pp)
+		#self.sparse_model = dcmp.MiniBatchDictionaryLearning(n_components = dict_size, alpha = lambd,
+		#	n_iter = n_iter, fit_algorithm = 'cd', batch_size = batch_size, transform_algorithm = 'lasso_cd', 
+		#	random_state = self.rng)
+
+		self.sparse_model = model.SparseCoding(n_sources = dict_size, lambd = lambd, seed = self.seed).fit(self.X_train_pp)
 		print('Fitting complete')
 
-	def reseed(self, seed = None):
-		if seed is None:
-			self.seed_id = randint(100000)
-			self.rng = RandomState(randint(100000))
-		else:
-			self.seed_id = seed
-			self.rng = RandomState(seed)
-
-	def reconstruct(self):
-		pass
+	def reseed(self, seed = randint(100000)):
+		self.seed = seed
+		self.rng = RandomState(seed)
 
 	def losses(self):
 		pass
@@ -74,8 +64,8 @@ class SparseCoding(object):
 
 class SpectrogramSC(SparseCoding):
 
-	def __init__(self):
-		SparseCoding.__init__(self, imshape = (.4, .8))
+	def __init__(self, seed = 100000):
+		SparseCoding.__init__(self, imshape = (.4, .8), seed = seed)
 
 		self.spect_path = None
 		self.feat_path = None
@@ -90,8 +80,6 @@ class SpectrogramSC(SparseCoding):
 		self.test_labels = []
 
 	def readin(self, path, auto_subsample = True):
-		self.isempty = False
-
 		# Set paths for data and metadata
 		self.root_path = path
 		self.feat_path = os.path.join(path, 'acoustic_features_setA.h5')
@@ -132,21 +120,18 @@ class SpectrogramSC(SparseCoding):
 			self.subsample()
 
 
-	def subsample(self, categories = None, max_samples = 1000, train_prop = .8, seed = True):
+	def subsample(self, categories = None, max_samples = 1000, train_prop = .8):
 		print('Subsampling...')
-		if self.isempty:
-			print('Error: no data read in\n')
+		if self.root_path is None:
+			print('Error: no data\n')
 			return None
-
-		if seed:
-			random.seed(seed_id)
 
 		if categories is None:
 			categories = self.category_idxs.keys()
 
 		# (Sub)sample indices from each category, concatenate, and partition into training and test sets
-		train_idxs = []
-		test_idxs = []
+		train_idxs = np.asarray([])
+		test_idxs = np.asarray([])
 		for category in categories:
 			idxs = self.category_idxs[category]
 
@@ -155,9 +140,9 @@ class SpectrogramSC(SparseCoding):
 			else:
 				n_samples = idxs.size
 
-			samples = random.sample(list(idxs), n_samples)
-			train_idxs += samples[:round(train_prop*n_samples)]
-			test_idxs += samples[round(train_prop*n_samples):]
+			samples = self.rng.choice(idxs, n_samples, replace = False)
+			train_idxs = np.concatenate((train_idxs, samples[:round(train_prop*n_samples)]))
+			test_idxs = np.concatenate((test_idxs, samples[round(train_prop*n_samples):]))
 
 		train_idxs.sort()
 		test_idxs.sort()
@@ -193,8 +178,8 @@ class SpectrogramSC(SparseCoding):
 
 	def preprocess(self, fit = True, n_components = .995):
 		print('Preprocessing data...')
-		if self.isempty:
-			print('Error: data empty\n')
+		if self.root_path is None:
+			print('Error: no data\n')
 			return None
 
 		if self.pca_model is None:
@@ -211,62 +196,138 @@ class SpectrogramSC(SparseCoding):
 		self.X_test_pp = self.pca_model.transform(self.X_test - np.mean(self.X_test,0))
 		print('Test set preprocessed')
 
-	def plotData(self, dataset = 'Train'):
-		if self.isempty:
-			print('Error: no data to plot')
+	def plotData(self, dataset = 'Train', grid_shape = (2,5)):
+		if self.root_path is None:
+			print('Error: no data')
 			return None
 
-		if dataset == 'Train':
-			X = self.X_train
-			titles = self.train_labels
-		elif dataset == 'Test':
-			X = self.X_test
-			titles = self.test_labels
+		if type(grid_shape) is tuple:
+			n_samples = np.prod(grid_shape)
+		else:
+			n_samples = grid_shape
 
-		plotFeatureArrays(X, self.X_shape, n_plots = (2, 5), 
+		if dataset == 'Train':
+			size = self.X_train.shape[0]
+			sample_idxs = self.rng.choice(size, n_samples, replace = False)
+
+			X = self.X_train[sample_idxs,:]
+			titles = self.train_labels[sample_idxs]
+
+		elif dataset == 'Test':
+			size = self.X_test.shape[0]
+			sample_idxs = self.rng.choice(size, n_samples, replace = False)
+
+			X = self.X_test[sample_idxs,:]
+			titles = self.test_labels[sample_idxs]
+
+		plotFeatureArrays(X, self.X_shape, n_plots = grid_shape, 
 			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape, 
 			aspect = .2, xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles, 
-			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower', seed_id = self.seed_id)
+			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
 
-	def plotDictionary(self):
+		return X, titles
+
+	def plotDictionary(self, grid_shape = (2,5)):
 		if self.sparse_model is None:
-			print('Error: SC model empty')
+			print('Error: SC model uninitialized')
 			return None
 
-		components = self.pca_model.inverse_transform(self.sparse_model.components_)
+		size = self.sparse_model.components_.shape[0]
 
-		plotFeatureArrays(components, self.X_shape, n_plots = (2, 5), 
+		if type(grid_shape) is tuple:
+			sample_idxs = self.rng.choice(size, np.prod(grid_shape), replace = False)
+		else:
+			sample_idxs = self.rng.choice(size, grid_shape, replace = False)
+
+		components = self.pca_model.inverse_transform(self.sparse_model.D[sample_idxs,:])
+
+		plotFeatureArrays(components, self.X_shape, n_plots = grid_shape, 
 			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape, 
 			aspect = .2, xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
-			extent = (0, 99, 0, 79952), origin = 'lower', seed_id = self.seed_id)
+			extent = (0, 99, 0, 79952), origin = 'lower')
 
-	def reconstructFromPCs(self, dataset = 'Train'):
+		return components
+
+	def reconstructFromPCs(self, dataset = 'Train', grid_shape = (2,5)):
 		if self.pca_model is None:
-			print('Error: PCA model empty')
+			print('Error: PCA model uninitialized')
 			return None
 
+		if type(grid_shape) is tuple:
+			n_samples = np.prod(grid_shape)
+		else:
+			n_samples = grid_shape
+
 		if dataset == 'Train':
-			X_hat = self.pca_model.inverse_transform(self.X_train_pp) + np.mean(self.X_train, 0)
-			titles = self.train_labels
+			size = self.X_train.shape[0]
+			sample_idxs = self.rng.choice(size, n_samples, replace = False)
+
+			X_hat = self.pca_model.inverse_transform(self.X_train_pp[sample_idxs,:]) + np.mean(self.X_train, 0)
+			titles = self.train_labels[sample_idxs]
+
 		elif dataset == 'Test':
-			X_hat = self.pca_model.inverse_transform(self.X_test_pp) + np.mean(self.X_train, 0)
-			titles = self.test_labels
+			size = self.X_train.shape[0]
+			sample_idxs = self.rng.choice(size, n_samples, replace = False)
+
+			X_hat = self.pca_model.inverse_transform(self.X_test_pp[sample_idxs,:]) + np.mean(self.X_train, 0)
+			titles = self.test_labels[sample_idxs]
+
 		else:
 			print('Error: dataset value %s unknown' % dataset)
+			return None
 
-		plotFeatureArrays(X_hat, self.X_shape, n_plots = (2, 5), 
+		plotFeatureArrays(X_hat, self.X_shape, n_plots = grid_shape, 
 			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape,
 			aspect = .2, xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles, 
-			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower', seed_id = self.seed_id)
+			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
+
+		return X_hat, titles
+
+	def reconstructFromSparseCode(self, dataset = 'Test', grid_shape = (2,5)):
+		if self.sparse_model is None:
+			print('Error: PCA model uninitialized')
+			return None
+
+		if type(grid_shape) is tuple:
+			n_samples = np.prod(grid_shape)
+		else:
+			n_samples = grid_shape
+
+		if dataset == 'Train':
+			size = self.X_train_pp.shape[0]
+			sample_idxs = self.rng.choice(size, n_samples, replace = False)
+
+			weights = self.sparse_model.transform(self.X_train_pp[sample_idxs,:]) # double check if transform on pp or raw data
+			titles = self.train_labels[sample_idxs]
+
+		elif dataset == 'Test':
+			size = self.X_test_pp.shape[0]
+			sample_idxs = self.rng.choice(size, n_samples, replace = False)
+
+			weights = self.sparse_model.transform(self.X_test_pp[sample_idxs,:])
+			titles = self.test_labels[sample_idxs]
+
+		else:
+			print('Error: dataset value %s unknown' % dataset)
+
+		X_hat = np.dot(weights, self.sparse_model.D) + np.mean(self.X_train, 0)
+
+		plotFeatureArrays(X_hat, self.X_shape, n_plots = grid_shape, 
+			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape, 
+			aspect = .2, xlims = (0, 100), ylims = (250, 10000), 
+			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles,
+			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
+
+		return X_hat, titles
 
 
 class NaturalImageSC(SparseCoding):
 
-	def __init__(self, path, completion = 2, auto_preprocess = True):
-		SparseCoding.__init__(self)
+	def __init__(self, path, completion = 2, auto_preprocess = True, seed = 100000):
+		SparseCoding.__init__(self, seed = seed)
 		self.root_path = path
 		self.im_path = '/data/vanhateren/images_curated.h5'
 
@@ -301,13 +362,35 @@ class NaturalImageSC(SparseCoding):
 		self.X_train_pp = (M.dot(X)).T
 
 	def plotData(self, grid_shape = (10,10)):
-		plotFeatureArrays(self.X_train_pp, self.X_shape, n_plots = grid_shape, seed_id = self.seed_id)
+		size = self.X_train_pp.shape[0]
+
+		if type(grid_shape) is tuple:
+			sample_idxs = self.rng.choice(size, np.prod(grid_shape))
+		else:
+			sample_idxs = self.rng.choice(size, grid_shape)
+
+		X = self.X_train_pp[sample_idxs,:]
+
+		plotFeatureArrays(X, self.X_shape, n_plots = grid_shape)
+
+		return X
 
 	def plotDictionary(self, grid_shape = (10,10)):
 		if self.sparse_model is None:
-			print('Error: SC model empty\n')
+			print('Error: SC model uninitialized\n')
 			return None
 
-		components = self.sparse_model.components_
+		#n_samples = self.sparse_model.components_.shape[0]
+		size = self.sparse_model.n_sources
 
-		plotFeatureArrays(components, self.X_shape, n_plots = grid_shape, seed_id = self.seed_id)
+		if type(grid_shape) is tuple:
+			sample_idxs = self.rng.choice(size, np.prod(grid_shape))
+		else:
+			sample_idxs = self.rng.choice(size, grid_shape)
+
+		#components = self.sparse_model.components_[sample_idxs,:]
+		components = self.sparse_model.D[sample_idxs, :]
+
+		plotFeatureArrays(components, self.X_shape, n_plots = grid_shape)
+
+		return components
