@@ -1,6 +1,8 @@
+import os
+
 import h5py
 import numpy as np
-import os
+import torch
 
 from itertools import compress
 from numpy.random import RandomState, randint
@@ -10,7 +12,8 @@ from sklearn.feature_extraction import image
 
 from sparse_coding import model
 
-from .utils import plotFeatureArrays
+from matplotlib import pyplot as plt
+from utils import plotFeatureArrays
 
 
 class SparseCoding(object):
@@ -37,8 +40,7 @@ class SparseCoding(object):
 		self.xmargin = xmargin
 		self.ymargin = ymargin
 
-	def fit(self, completion = 2, lambd = .5, n_iter = 5000, batch_size = 50):
-		# Obselete parameters: n_iter = 5000, batch_size = 50
+	def fit(self, completion = 2, lambd = .5, **kwargs):
 		print('Fitting model...')
 
 		if self.X_train_pp.size == 0:
@@ -47,11 +49,8 @@ class SparseCoding(object):
 
 		dict_size = round(completion * self.X_train_pp.shape[1])
 
-		#self.sparse_model = dcmp.MiniBatchDictionaryLearning(n_components = dict_size, alpha = lambd,
-		#	n_iter = n_iter, fit_algorithm = 'cd', batch_size = batch_size, transform_algorithm = 'lasso_cd', 
-		#	random_state = self.rng)
-
-		self.sparse_model = model.SparseCoding(n_sources = dict_size, lambd = lambd, seed = self.seed).fit(self.X_train_pp)
+		self.sparse_model = model.SparseCoding(n_sources = dict_size, lambd = lambd, 
+			device = 'cuda', seed = self.seed, **kwargs).fit(self.X_train_pp)
 		print('Fitting complete')
 
 	def reseed(self, seed = randint(100000)):
@@ -65,7 +64,7 @@ class SparseCoding(object):
 class SpectrogramSC(SparseCoding):
 
 	def __init__(self, seed = 100000):
-		SparseCoding.__init__(self, imshape = (.4, .8), seed = seed)
+		SparseCoding.__init__(self, xmargin = .25, ymargin = .25, seed = seed)
 
 		self.spect_path = None
 		self.feat_path = None
@@ -144,8 +143,8 @@ class SpectrogramSC(SparseCoding):
 			train_idxs = np.concatenate((train_idxs, samples[:round(train_prop*n_samples)]))
 			test_idxs = np.concatenate((test_idxs, samples[round(train_prop*n_samples):]))
 
-		train_idxs.sort()
-		test_idxs.sort()
+		self.rng.shuffle(train_idxs)
+		self.rng.shuffle(test_idxs)
 
 		# Get training and test data arrays
 		with h5py.File(self.spect_path) as spect:
@@ -174,6 +173,9 @@ class SpectrogramSC(SparseCoding):
 					self.test_labels.append(line.split('/')[-1].split('.')[0])
 
 				i += 1
+		self.train_labels = np.array(self.train_labels)
+		self.test_labels = np.array(self.test_labels)
+
 		print('Subsampling complete\n')
 
 	def preprocess(self, fit = True, n_components = .995):
@@ -207,33 +209,39 @@ class SpectrogramSC(SparseCoding):
 			n_samples = grid_shape
 
 		if dataset == 'Train':
+			X = self.X_train
 			size = self.X_train.shape[0]
 			sample_idxs = self.rng.choice(size, n_samples, replace = False)
 
 			X = self.X_train[sample_idxs,:]
 			titles = self.train_labels[sample_idxs]
-
 		elif dataset == 'Test':
+			X = self.X_test
 			size = self.X_test.shape[0]
 			sample_idxs = self.rng.choice(size, n_samples, replace = False)
 
 			X = self.X_test[sample_idxs,:]
 			titles = self.test_labels[sample_idxs]
+		else:
+			raise ValueError
+	
+		size = X.shape[0]
+		sample_idxs = self.rng.choice(size, n_samples, replace = False)
 
 		plotFeatureArrays(X, self.X_shape, n_plots = grid_shape, 
-			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape, 
-			aspect = .2, xlims = (0, 100), ylims = (250, 10000),
+			tile_pad = (self.xmargin, self.ymargin), 
+			aspect = .02, xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles, 
 			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
-
-		return X, titles
-
-	def plotDictionary(self, grid_shape = (2,5)):
+                
+                return X, titles
+        
+        def plotDictionary(self, grid_shape = (2,5)):
 		if self.sparse_model is None:
 			print('Error: SC model uninitialized')
 			return None
 
-		size = self.sparse_model.components_.shape[0]
+		size = self.sparse_model.n_sources
 
 		if type(grid_shape) is tuple:
 			sample_idxs = self.rng.choice(size, np.prod(grid_shape), replace = False)
@@ -243,44 +251,57 @@ class SpectrogramSC(SparseCoding):
 		components = self.pca_model.inverse_transform(self.sparse_model.D[sample_idxs,:])
 
 		plotFeatureArrays(components, self.X_shape, n_plots = grid_shape, 
-			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape, 
-			aspect = .2, xlims = (0, 100), ylims = (250, 10000),
+			tile_pad = (self.xmargin, self.ymargin), 
+			aspect = .02, xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', 
 			extent = (0, 99, 0, 79952), origin = 'lower')
 
 		return components
+	
+	def plotSparseness(self, dataset = 'Train', weights = None, thresh = 0):
+		if weights is None:
+			if dataset == 'Train':
+				weights = self.sparse_model.transform(self.X_train_pp)
+			elif dataset == 'Test':
+				weights = self.sparse_model.transform(self.X_test_pp)
+			else:
+				raise ValueError
+		
+		abs_w = np.abs(weights)
+		abs_w[abs_w < thresh] = 0
+
+		plt.hist(abs_w.mean(0), bins = 10)
+		
+		return weights
 
 	def reconstructFromPCs(self, dataset = 'Train', grid_shape = (2,5)):
 		if self.pca_model is None:
 			print('Error: PCA model uninitialized')
 			return None
+		
+		if dataset == 'Train':
+			X = self.X_train_pp
+			labels = np.array(self.train_labels)
+		elif dataset == 'Test':
+			X = self.X_test_pp
+			labels = np.array(self.test_labels)
+		else:
+			raise ValueError
 
 		if type(grid_shape) is tuple:
 			n_samples = np.prod(grid_shape)
 		else:
 			n_samples = grid_shape
-
-		if dataset == 'Train':
-			size = self.X_train.shape[0]
-			sample_idxs = self.rng.choice(size, n_samples, replace = False)
-
-			X_hat = self.pca_model.inverse_transform(self.X_train_pp[sample_idxs,:]) + np.mean(self.X_train, 0)
-			titles = self.train_labels[sample_idxs]
-
-		elif dataset == 'Test':
-			size = self.X_train.shape[0]
-			sample_idxs = self.rng.choice(size, n_samples, replace = False)
-
-			X_hat = self.pca_model.inverse_transform(self.X_test_pp[sample_idxs,:]) + np.mean(self.X_train, 0)
-			titles = self.test_labels[sample_idxs]
-
-		else:
-			print('Error: dataset value %s unknown' % dataset)
-			return None
+	
+		size = X.shape[0]
+		sample_idxs = self.rng.choice(size, n_samples, replace = False)
+		titles = labels[sample_idxs]
+		
+		X_hat = self.pca_model.inverse_transform(X[sample_idxs,:]) + self.X_train.mean(0)
 
 		plotFeatureArrays(X_hat, self.X_shape, n_plots = grid_shape, 
-			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape,
-			aspect = .2, xlims = (0, 100), ylims = (250, 10000),
+			tile_pad = (self.xmargin, self.ymargin), 
+			aspect = .02, xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles, 
 			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
 
@@ -291,33 +312,30 @@ class SpectrogramSC(SparseCoding):
 			print('Error: PCA model uninitialized')
 			return None
 
+		if dataset == 'Train':
+			X = self.X_train_pp
+			labels = self.train_labels
+		elif dataset == 'Test':
+			X = self.X_test_pp
+			labels = self.test_labels
+		else:
+			raise ValueError
+	
 		if type(grid_shape) is tuple:
 			n_samples = np.prod(grid_shape)
 		else:
 			n_samples = grid_shape
+	
+		size = X.shape[0]
+		sample_idxs = self.rng.choice(size, n_samples, replace = False)
+		weights = self.sparse_model.transform(X[sample_idxs,:])
+		titles = labels[sample_idxs]
 
-		if dataset == 'Train':
-			size = self.X_train_pp.shape[0]
-			sample_idxs = self.rng.choice(size, n_samples, replace = False)
-
-			weights = self.sparse_model.transform(self.X_train_pp[sample_idxs,:]) # double check if transform on pp or raw data
-			titles = self.train_labels[sample_idxs]
-
-		elif dataset == 'Test':
-			size = self.X_test_pp.shape[0]
-			sample_idxs = self.rng.choice(size, n_samples, replace = False)
-
-			weights = self.sparse_model.transform(self.X_test_pp[sample_idxs,:])
-			titles = self.test_labels[sample_idxs]
-
-		else:
-			print('Error: dataset value %s unknown' % dataset)
-
-		X_hat = np.dot(weights, self.sparse_model.D) + np.mean(self.X_train, 0)
+		X_hat = self.pca_model.inverse_transform(weights.dot(self.sparse_model.D)) + self.X_train.mean(0)
 
 		plotFeatureArrays(X_hat, self.X_shape, n_plots = grid_shape, 
-			tile_pad = (self.xmargin, self.ymargin), tile_shape = self.imshape, 
-			aspect = .2, xlims = (0, 100), ylims = (250, 10000), 
+			tile_pad = (self.xmargin, self.ymargin), 
+			aspect = .02, xlims = (0, 100), ylims = (250, 10000), 
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles,
 			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
 
@@ -389,7 +407,7 @@ class NaturalImageSC(SparseCoding):
 			sample_idxs = self.rng.choice(size, grid_shape)
 
 		#components = self.sparse_model.components_[sample_idxs,:]
-		components = self.sparse_model.D[sample_idxs, :]
+		components = self.sparse_model.D[sample_idxs,:]
 
 		plotFeatureArrays(components, self.X_shape, n_plots = grid_shape)
 
