@@ -233,8 +233,8 @@ class SpectrogramSC(SparseCoding):
 			aspect = .02, xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles, 
 			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
-                
-                return X, titles
+
+		return X, titles
         
         def plotDictionary(self, grid_shape = (2,5)):
 		if self.sparse_model is None:
