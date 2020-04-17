@@ -21,7 +21,7 @@ class SparseCoding(object):
 	Generic sparse coding model
 	'''
 
-	def __init__(self, imshape = (.4, .4), xmargin = .1, ymargin = .125, seed = 100000):
+	def __init__(self, imshape = (.4, .4), xmargin = .2, ymargin = .25, seed = 100000):
 		self.root_path = None
 		self.sparse_model = None
 		self.datatype = ''
@@ -190,63 +190,58 @@ class SpectrogramSC(SparseCoding):
 		if fit:
 			print('Fitting PCA model...')
 			self.pca_model = dcmp.PCA(n_components = n_components, whiten = True, random_state = self.rng)
-			self.X_train_pp = self.pca_model.fit_transform(self.X_train - np.mean(self.X_train,0))
+			self.X_train_pp = self.pca_model.fit_transform(self.X_train - self.X_train.mean(0))
 		else:
-			self.X_train_pp = self.pca_model.transform(self.X_train - np.mean(self.X_train,0))
+			self.X_train_pp = self.pca_model.transform(self.X_train - self.X_train.mean(0))
 		print('Training set preprocessed')
 
-		self.X_test_pp = self.pca_model.transform(self.X_test - np.mean(self.X_test,0))
+		self.X_test_pp = self.pca_model.transform(self.X_test - self.X_test.mean(0))
 		print('Test set preprocessed')
 
-	def plotData(self, dataset = 'Train', grid_shape = (2,5)):
+	def plotData(self, dataset = 'Train', grid_shape = (2,5), sample_idxs = None):
 		if self.root_path is None:
 			print('Error: no data')
 			return None
 
-		if type(grid_shape) is tuple:
-			n_samples = np.prod(grid_shape)
-		else:
-			n_samples = grid_shape
-
 		if dataset == 'Train':
 			X = self.X_train
-			size = self.X_train.shape[0]
-			sample_idxs = self.rng.choice(size, n_samples, replace = False)
-
-			X = self.X_train[sample_idxs,:]
-			titles = self.train_labels[sample_idxs]
+			labels = self.train_labels
 		elif dataset == 'Test':
 			X = self.X_test
-			size = self.X_test.shape[0]
-			sample_idxs = self.rng.choice(size, n_samples, replace = False)
-
-			X = self.X_test[sample_idxs,:]
-			titles = self.test_labels[sample_idxs]
+			labels = self.test_labels
 		else:
 			raise ValueError
-	
-		size = X.shape[0]
-		sample_idxs = self.rng.choice(size, n_samples, replace = False)
+		
+		if sample_idxs is None:
+			if type(grid_shape) is tuple:
+				n_samples = np.prod(grid_shape)
+			else:
+				n_samples = grid_shape
+			size = X.shape[0]
+			sample_idxs = self.rng.choice(size, n_samples, replace = False)
+
+		X = X[sample_idxs,:]
+		titles = labels[sample_idxs]
 
 		plotFeatureArrays(X, self.X_shape, n_plots = grid_shape, 
 			tile_pad = (self.xmargin, self.ymargin), 
 			aspect = .02, xlims = (0, 100), ylims = (250, 10000),
 			xlabel = 'Time (ms)', ylabel = 'Frequency (Hz)', titles = titles, 
 			noise_floor = 50, extent = (0, 99, 0, 79952), origin = 'lower')
-                
-                return X, titles
-        
-        def plotDictionary(self, grid_shape = (2,5)):
+			
+		return X, titles
+		
+	def plotDictionary(self, grid_shape = (2,5), sample_idxs = None):
 		if self.sparse_model is None:
 			print('Error: SC model uninitialized')
 			return None
-
-		size = self.sparse_model.n_sources
-
-		if type(grid_shape) is tuple:
-			sample_idxs = self.rng.choice(size, np.prod(grid_shape), replace = False)
-		else:
-			sample_idxs = self.rng.choice(size, grid_shape, replace = False)
+		
+		if sample_idxs is None:
+			size = self.sparse_model.n_sources
+			if type(grid_shape) is tuple:
+				sample_idxs = self.rng.choice(size, np.prod(grid_shape), replace = False)
+			else:
+				sample_idxs = self.rng.choice(size, grid_shape, replace = False)
 
 		components = self.pca_model.inverse_transform(self.sparse_model.D[sample_idxs,:])
 
@@ -274,7 +269,7 @@ class SpectrogramSC(SparseCoding):
 		
 		return weights
 
-	def reconstructFromPCs(self, dataset = 'Train', grid_shape = (2,5)):
+	def reconstructFromPCs(self, dataset = 'Train', grid_shape = (2,5), sample_idxs = None):
 		if self.pca_model is None:
 			print('Error: PCA model uninitialized')
 			return None
@@ -282,22 +277,25 @@ class SpectrogramSC(SparseCoding):
 		if dataset == 'Train':
 			X = self.X_train_pp
 			labels = np.array(self.train_labels)
+			mean = self.X_train.mean(0)
 		elif dataset == 'Test':
 			X = self.X_test_pp
 			labels = np.array(self.test_labels)
+			mean = self.X_test.mean(0)
 		else:
 			raise ValueError
+		
+		if sample_idxs is None:
+			if type(grid_shape) is tuple:
+				n_samples = np.prod(grid_shape)
+			else:
+				n_samples = grid_shape
+			size = X.shape[0]
+			sample_idxs = self.rng.choice(size, n_samples, replace = False)
 
-		if type(grid_shape) is tuple:
-			n_samples = np.prod(grid_shape)
-		else:
-			n_samples = grid_shape
-	
-		size = X.shape[0]
-		sample_idxs = self.rng.choice(size, n_samples, replace = False)
 		titles = labels[sample_idxs]
 		
-		X_hat = self.pca_model.inverse_transform(X[sample_idxs,:]) + self.X_train.mean(0)
+		X_hat = self.pca_model.inverse_transform(X[sample_idxs,:]) + mean
 
 		plotFeatureArrays(X_hat, self.X_shape, n_plots = grid_shape, 
 			tile_pad = (self.xmargin, self.ymargin), 
@@ -307,7 +305,7 @@ class SpectrogramSC(SparseCoding):
 
 		return X_hat, titles
 
-	def reconstructFromSparseCode(self, dataset = 'Test', grid_shape = (2,5)):
+	def reconstructFromSparseCode(self, dataset = 'Test', grid_shape = (2,5), sample_idxs = None):
 		if self.sparse_model is None:
 			print('Error: PCA model uninitialized')
 			return None
@@ -315,23 +313,26 @@ class SpectrogramSC(SparseCoding):
 		if dataset == 'Train':
 			X = self.X_train_pp
 			labels = self.train_labels
+			mean = self.X_train.mean(0)
 		elif dataset == 'Test':
 			X = self.X_test_pp
 			labels = self.test_labels
+			mean = self.X_test.mean(0)
 		else:
 			raise ValueError
-	
-		if type(grid_shape) is tuple:
-			n_samples = np.prod(grid_shape)
-		else:
-			n_samples = grid_shape
-	
-		size = X.shape[0]
-		sample_idxs = self.rng.choice(size, n_samples, replace = False)
+		
+		if sample_idxs is None:
+			if type(grid_shape) is tuple:
+				n_samples = np.prod(grid_shape)
+			else:
+				n_samples = grid_shape
+			size = X.shape[0]
+			sample_idxs = self.rng.choice(size, n_samples, replace = False)
+
 		weights = self.sparse_model.transform(X[sample_idxs,:])
 		titles = labels[sample_idxs]
 
-		X_hat = self.pca_model.inverse_transform(weights.dot(self.sparse_model.D)) + self.X_train.mean(0)
+		X_hat = self.pca_model.inverse_transform(weights.dot(self.sparse_model.D)) + mean
 
 		plotFeatureArrays(X_hat, self.X_shape, n_plots = grid_shape, 
 			tile_pad = (self.xmargin, self.ymargin), 
